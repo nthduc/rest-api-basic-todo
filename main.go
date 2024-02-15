@@ -36,9 +36,17 @@ type TodoItemCreation struct {
 	//Status      string `json:"status" gorm:"column:status"`
 }
 
+type TodoItemUpdate struct {
+	Title       *string `json:"title" gorm:"column:title"`
+	Description *string `json:"description" gorm:"column:description"`
+	Status      *string `json:"status" gorm:"column:status"`
+}
+
 func (TodoItem) TableName() string { return "todo_items" }
 
 func (TodoItemCreation) TableName() string { return TodoItem{}.TableName() }
+
+func (TodoItemUpdate) TableName() string { return TodoItem{}.TableName() }
 
 func main() {
 
@@ -97,8 +105,8 @@ func main() {
 			items.POST("", CreateItem(db))
 			items.GET("")
 			items.GET("/:id", GetItem(db))
-			items.PATCH("/:id")
-			items.DELETE("/:id")
+			items.PATCH("/:id", UpdateItem(db))
+			items.DELETE("/:id", DeleteItem(db))
 		}
 	}
 
@@ -157,6 +165,69 @@ func GetItem(db *gorm.DB) func(*gin.Context) {
 
 		c.JSON(http.StatusOK, gin.H{
 			"data": data,
+		})
+	}
+}
+
+func UpdateItem(db *gorm.DB) func(*gin.Context) {
+	return func(c *gin.Context) {
+		var data TodoItemUpdate
+
+		// /v1/items/1
+		id, err := strconv.Atoi(c.Param("id")) // "id"
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		if err := c.ShouldBind(&data); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		// data.Id = id
+		// db.First(&data)
+		if err := db.Table(TodoItem{}.TableName()).Where("id = ?", id).Updates(&data).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data": true,
+		})
+	}
+}
+
+func DeleteItem(db *gorm.DB) func(*gin.Context) {
+	return func(c *gin.Context) {
+
+		// /v1/items/1
+		id, err := strconv.Atoi(c.Param("id")) // "id"
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+		// data.Id = id
+		// db.First(&data)
+		if err := db.Where("id = ?", id).Updates(map[string]interface{}{
+			"status": "Deleted",
+		}).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data": true,
 		})
 	}
 }
