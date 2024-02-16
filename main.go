@@ -1,13 +1,17 @@
 package main
 
 import (
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/nthduc/rest-api-basic-todo/common"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -20,20 +24,93 @@ import (
 // `updated_at` datetime DEFAULT CURRENT_TIMESTAMP,
 // `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
 
+type ItemStatus int
+
+const (
+	ItemStatusDoing ItemStatus = iota
+	ItemStatusDone
+	ItemStatusDeleted
+)
+
+var allItemStatuses = [3]string{"Doing", "Done", "Deleted"}
+
+func (item *ItemStatus) String() string {
+	return allItemStatuses[*item]
+}
+
+func parseStr2ItemStatus(s string) (ItemStatus, error) {
+	for i := range allItemStatuses {
+		if allItemStatuses[i] == s {
+			return ItemStatus(i), nil
+		}
+	}
+
+	return ItemStatus(0), errors.New("Invalid Status String")
+}
+
+func (item *ItemStatus) Scan(value interface{}) error {
+	bytes, ok := value.([]byte)
+
+	if !ok {
+		return errors.New(fmt.Sprintf("Fail to scan data from sql: %s", value))
+	}
+
+	v, err := parseStr2ItemStatus(string(bytes))
+
+	if err != nil {
+		return errors.New(fmt.Sprintf("fail to scan data from sql: %s", value))
+	}
+
+	*item = v
+
+	return nil
+}
+
+func (item *ItemStatus) Value() (driver.Value, error) {
+	if item == nil {
+		return nil, nil
+	}
+
+	return item.String(), nil
+}
+
+// ItemStatus --> JSON value
+func (item *ItemStatus) MarshalJSON() ([]byte, error) {
+	if item == nil {
+		return nil, nil
+	}
+	return []byte(fmt.Sprintf("\"%s\"", item.String())), nil
+}
+
+// JSON value ---> ItemStatus
+func (item *ItemStatus) UnmarshalJSON(data []byte) error {
+	str := strings.ReplaceAll(string(data), "\"", "") // "Doing"
+
+	itemValue, err := parseStr2ItemStatus(str)
+
+	if err != nil {
+		return err
+	}
+
+	*item = itemValue
+
+	return nil
+}
+
 type TodoItem struct {
-	Id          int        `json:"id" gorm:"column:id`
-	Title       string     `json:"title" gorm:"column:title`
-	Description string     `json:"description" gorm:"column:description`
-	Status      string     `json:"status" gorm:"column:status`
-	CreatedAt   *time.Time `json:"created_at" gorm:"column:created_at`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty" gorm:"column:updated_at`
+	Id          int         `json:"id" gorm:"column:id`
+	Title       string      `json:"title" gorm:"column:title`
+	Description string      `json:"description" gorm:"column:description`
+	Status      *ItemStatus `json:"status" gorm:"column:status`
+	CreatedAt   *time.Time  `json:"created_at" gorm:"column:created_at`
+	UpdatedAt   *time.Time  `json:"updated_at,omitempty" gorm:"column:updated_at`
 }
 
 type TodoItemCreation struct {
-	Id          int    `json:"-" gorm:"column:id`
-	Title       string `json:"title" gorm:"column:title"`
-	Description string `json:"description" gorm:"column:description"`
-	//Status      string `json:"status" gorm:"column:status"`
+	Id          int         `json:"-" gorm:"column:id`
+	Title       string      `json:"title" gorm:"column:title"`
+	Description string      `json:"description" gorm:"column:description"`
+	Status      *ItemStatus `json:"status" gorm:"column:status"`
 }
 
 type TodoItemUpdate struct {
@@ -103,7 +180,7 @@ func main() {
 		items := v1.Group("/items")
 		{
 			items.POST("", CreateItem(db))
-			items.GET("")
+			items.GET("", ListItem(db))
 			items.GET("/:id", GetItem(db))
 			items.PATCH("/:id", UpdateItem(db))
 			items.DELETE("/:id", DeleteItem(db))
@@ -135,9 +212,7 @@ func CreateItem(db *gorm.DB) func(*gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"data": data.Id,
-		})
+		c.JSON(http.StatusOK, common.SimpleSuccessResponse(data.Id))
 
 	}
 }
@@ -163,9 +238,7 @@ func GetItem(db *gorm.DB) func(*gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"data": data,
-		})
+		c.JSON(http.StatusOK, common.SimpleSuccessResponse(data))
 	}
 }
 
@@ -198,9 +271,7 @@ func UpdateItem(db *gorm.DB) func(*gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"data": true,
-		})
+		c.JSON(http.StatusOK, common.SimpleSuccessResponse(true))
 	}
 }
 
@@ -229,5 +300,42 @@ func DeleteItem(db *gorm.DB) func(*gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"data": true,
 		})
+	}
+}
+
+func ListItem(db *gorm.DB) func(*gin.Context) {
+	return func(c *gin.Context) {
+		var paging common.Paging
+		if err := c.ShouldBind(&paging); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		paging.Process()
+
+		var result []TodoItem
+
+		db = db.Where("status <> ?", "Deleted") // lọc status có giá trị khác với Deleted là được
+
+		if err := db.Table(TodoItem{}.TableName()).Count(&paging.Total).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+		}
+
+		if err := db.Order("id desc").Offset((paging.Page - 1) * paging.Limit).Limit(paging.Limit).Find(&result).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data":   result,
+			"paging": paging,
+		})
+
 	}
 }
