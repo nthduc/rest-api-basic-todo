@@ -1,0 +1,30 @@
+package business
+
+import (
+	"context"
+	"strings"
+
+	"github.com/nthduc/rest-api-basic-todo/modules/item/model"
+)
+
+type CreateItemStorage interface {
+	CreateItem(ctx context.Context, data *model.TodoItemCreation) error
+}
+
+type createItemBiz struct {
+	store CreateItemStorage
+}
+
+func (biz *createItemBiz) CreateNewItem(ctx context.Context, data *model.TodoItemCreation) error {
+	title := strings.TrimSpace(data.Title)
+
+	if title == "" {
+		return model.ErrTitleIsBlank
+	}
+
+	if err := biz.store.CreateItem(ctx, data); err != nil {
+		return err
+	}
+
+	return nil
+}
