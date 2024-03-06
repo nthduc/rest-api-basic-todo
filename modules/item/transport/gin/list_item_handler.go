@@ -11,10 +11,20 @@ import (
 	"gorm.io/gorm"
 )
 
-func CreateItem(db *gorm.DB) func(*gin.Context) {
+func ListItem(db *gorm.DB) func(*gin.Context) {
 	return func(c *gin.Context) {
-		var data model.TodoItemCreation
-		if err := c.ShouldBind(&data); err != nil {
+		var paging common.Paging
+		if err := c.ShouldBind(&paging); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+		paging.Process()
+
+		var filter model.Filter
+
+		if err := c.ShouldBind(&filter); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err.Error(),
 			})
@@ -22,17 +32,18 @@ func CreateItem(db *gorm.DB) func(*gin.Context) {
 		}
 
 		store := storage.NewSQLStore(db)
+		biz := business.NewListItemBiz(store)
 
-		biz := business.NewCreateItemBiz(store)
+		result, err := biz.ListItem(c.Request.Context(), &filter, &paging)
 
-		if err := biz.CreateNewItem(c.Request.Context(), &data); err != nil {
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err.Error(),
 			})
 			return
 		}
 
-		c.JSON(http.StatusOK, common.SimpleSuccessResponse(data.Id))
+		c.JSON(http.StatusOK, common.NewSuccessResponse(result, paging, filter))
 
 	}
 }

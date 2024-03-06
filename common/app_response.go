@@ -2,7 +2,7 @@ package common
 
 type successResponse struct {
 	Data   interface{} `json:"data"`
-	Paging interface{} `json:"omitempty"`
+	Paging interface{} `json:"paging,omitempty"`
 	Filter interface{} `json:"filter,omitempty"`
 }
 

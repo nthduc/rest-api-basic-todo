@@ -2,6 +2,7 @@ package gin_item
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nthduc/rest-api-basic-todo/common"
@@ -11,9 +12,19 @@ import (
 	"gorm.io/gorm"
 )
 
-func CreateItem(db *gorm.DB) func(*gin.Context) {
+func UpdateItem(db *gorm.DB) func(*gin.Context) {
 	return func(c *gin.Context) {
-		var data model.TodoItemCreation
+		var data model.TodoItemUpdate
+
+		// /v1/items/1
+		id, err := strconv.Atoi(c.Param("id")) // "id"
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
 		if err := c.ShouldBind(&data); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err.Error(),
@@ -22,17 +33,15 @@ func CreateItem(db *gorm.DB) func(*gin.Context) {
 		}
 
 		store := storage.NewSQLStore(db)
+		biz := business.NewUpdateItemBiz(store)
 
-		biz := business.NewCreateItemBiz(store)
-
-		if err := biz.CreateNewItem(c.Request.Context(), &data); err != nil {
+		if err := biz.UpdateItemById(c.Request.Context(), id, &data); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err.Error(),
 			})
 			return
 		}
 
-		c.JSON(http.StatusOK, common.SimpleSuccessResponse(data.Id))
-
+		c.JSON(http.StatusOK, common.SimpleSuccessResponse(true))
 	}
 }

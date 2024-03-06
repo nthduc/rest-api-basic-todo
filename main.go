@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/nthduc/rest-api-basic-todo/common"
-	"github.com/nthduc/rest-api-basic-todo/modules/item/model"
+	gin_item "github.com/nthduc/rest-api-basic-todo/modules/item/transport/gin"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -33,6 +31,7 @@ func main() {
 	fmt.Println(db)
 
 	r := gin.Default()
+	//r.Use(middleware.Recovery())
 
 	//CRUD: Create, Read, Update, Delete
 	//POST: /v1/items (Create a new item)
@@ -45,11 +44,11 @@ func main() {
 	{
 		items := v1.Group("/items")
 		{
-			items.POST("", CreateItem(db))
-			items.GET("", ListItem(db))
-			items.GET("/:id", GetItem(db))
-			items.PATCH("/:id", UpdateItem(db))
-			items.DELETE("/:id", DeleteItem(db))
+			items.POST("", gin_item.CreateItem(db))
+			items.GET("", gin_item.ListItem(db))
+			items.GET("/:id", gin_item.GetItem(db))
+			items.PATCH("/:id", gin_item.UpdateItem(db))
+			items.DELETE("/:id", gin_item.DeleteItem(db))
 		}
 	}
 
@@ -59,144 +58,4 @@ func main() {
 		})
 	})
 	r.Run(":3000")
-}
-
-func CreateItem(db *gorm.DB) func(*gin.Context) {
-	return func(c *gin.Context) {
-		var data model.TodoItemCreation
-		if err := c.ShouldBind(&data); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		if err := db.Create(&data).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, common.SimpleSuccessResponse(data.Id))
-
-	}
-}
-
-func GetItem(db *gorm.DB) func(*gin.Context) {
-	return func(c *gin.Context) {
-		var data model.TodoItem
-
-		// /v1/items/1
-		id, err := strconv.Atoi(c.Param("id")) // "id"
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-		// data.Id = id
-		// db.First(&data)
-		if err := db.Where("id = ?", id).First(&data).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, common.SimpleSuccessResponse(data))
-	}
-}
-
-func UpdateItem(db *gorm.DB) func(*gin.Context) {
-	return func(c *gin.Context) {
-		var data model.TodoItemUpdate
-
-		// /v1/items/1
-		id, err := strconv.Atoi(c.Param("id")) // "id"
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		if err := c.ShouldBind(&data); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		// data.Id = id
-		// db.First(&data)
-		if err := db.Table(model.TodoItem{}.TableName()).Where("id = ?", id).Updates(&data).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, common.SimpleSuccessResponse(true))
-	}
-}
-
-func DeleteItem(db *gorm.DB) func(*gin.Context) {
-	return func(c *gin.Context) {
-
-		// /v1/items/1
-		id, err := strconv.Atoi(c.Param("id")) // "id"
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-		// data.Id = id
-		// db.First(&data)
-		if err := db.Where("id = ?", id).Updates(map[string]interface{}{
-			"status": "Deleted",
-		}).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, common.SimpleSuccessResponse(true))
-	}
-}
-
-func ListItem(db *gorm.DB) func(*gin.Context) {
-	return func(c *gin.Context) {
-		var paging common.Paging
-		if err := c.ShouldBind(&paging); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		paging.Process()
-
-		var result []model.TodoItem
-
-		db = db.Where("status <> ?", "Deleted") // lọc status có giá trị khác với Deleted là được
-
-		if err := db.Table(model.TodoItem{}.TableName()).Count(&paging.Total).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-		}
-
-		if err := db.Order("id desc").Offset((paging.Page - 1) * paging.Limit).Limit(paging.Limit).Find(&result).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, common.NewSuccessResponse(result, paging, nil))
-
-	}
 }
